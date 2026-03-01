@@ -58,11 +58,12 @@ def register():
 
         hashed_pw = bcrypt.generate_password_hash(password).decode("utf-8")
 
-        # First user = Admin, others choose role
+        # First user = Admin
         if User.query.count() == 0:
             role = "Admin"
         else:
-            role = request.form.get("role")  # Staff or Manager
+            # Safely get role, default to Staff if missing
+            role = request.form.get("role") or "Staff"
 
         new_user = User(username=username, password=hashed_pw, role=role)
         db.session.add(new_user)
