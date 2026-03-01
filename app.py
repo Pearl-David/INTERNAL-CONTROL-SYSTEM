@@ -1,11 +1,10 @@
 from flask import Flask, render_template, redirect, url_for, request, flash
 from config import Config
-from models import db, User, AuditLog
+from models import db, User, AuditLog, Transaction, ControlAlert
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from flask_bcrypt import Bcrypt
 from datetime import datetime
-from models import Transaction, ControlAlert
-
+from functools import wraps
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -17,15 +16,17 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login"
 
+
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
 
+
 with app.app_context():
     db.create_all()
 
-    from functools import wraps
 
+# ================= ROLE DECORATOR =================
 def role_required(role):
     def decorator(f):
         @wraps(f)
@@ -36,9 +37,13 @@ def role_required(role):
         return decorated_function
     return decorator
 
+
+# ================= ROUTES =================
+
 @app.route("/")
 def home():
     return redirect(url_for("login"))
+
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
@@ -64,6 +69,7 @@ def register():
 
     return render_template("register.html")
 
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -75,8 +81,11 @@ def login():
         if user and bcrypt.check_password_hash(user.password, password):
             login_user(user)
 
-            # Audit Log
-            log = AuditLog(user_id=user.id, action="Logged in", timestamp=datetime.utcnow())
+            log = AuditLog(
+                user_id=user.id,
+                action="Logged in",
+                timestamp=datetime.utcnow()
+            )
             db.session.add(log)
             db.session.commit()
 
@@ -86,12 +95,15 @@ def login():
 
     return render_template("login.html")
 
+
 @app.route("/dashboard")
 @login_required
 def dashboard():
     return f"Welcome {current_user.username} - Role: {current_user.role}"
 
-    @app.route("/create-transaction", methods=["GET", "POST"])
+
+# ================= CREATE TRANSACTION =================
+@app.route("/create-transaction", methods=["GET", "POST"])
 @login_required
 @role_required("Staff")
 def create_transaction():
@@ -103,35 +115,37 @@ def create_transaction():
             amount=amount,
             status="Pending"
         )
-
         db.session.add(transaction)
 
-        # Audit log
         log = AuditLog(
             user_id=current_user.id,
-            action=f"Created transaction of {amount}"
+            action=f"Created transaction of {amount}",
+            timestamp=datetime.utcnow()
         )
         db.session.add(log)
-        db.session.commit()
 
+        db.session.commit()
         return "Transaction Created"
 
     return render_template("create_transaction.html")
 
-    @app.route("/approve/<int:transaction_id>")
+
+# ================= APPROVE TRANSACTION =================
+@app.route("/approve/<int:transaction_id>")
 @login_required
 @role_required("Manager")
 def approve_transaction(transaction_id):
 
     transaction = Transaction.query.get_or_404(transaction_id)
+
     # Fraud rule: flag suspicious high-value transactions
-if amount > 50000:
-    alert = ControlAlert(
-        transaction_id=transaction.id,
-        alert_type="Suspicious Transaction",
-        description="Transaction unusually high"
-    )
-    db.session.add(alert)
+    if transaction.amount > 50000:
+        alert = ControlAlert(
+            transaction_id=transaction.id,
+            alert_type="Suspicious Transaction",
+            description="Transaction unusually high"
+        )
+        db.session.add(alert)
 
     # Control rule: Manager cannot approve above 10000
     if transaction.amount > 10000:
@@ -149,23 +163,29 @@ if amount > 50000:
 
     log = AuditLog(
         user_id=current_user.id,
-        action=f"Approved transaction {transaction.id}"
+        action=f"Approved transaction {transaction.id}",
+        timestamp=datetime.utcnow()
     )
-
     db.session.add(log)
-    db.session.commit()
 
+    db.session.commit()
     return "Transaction Approved"
+
 
 @app.route("/logout")
 @login_required
 def logout():
-    log = AuditLog(user_id=current_user.id, action="Logged out", timestamp=datetime.utcnow())
+    log = AuditLog(
+        user_id=current_user.id,
+        action="Logged out",
+        timestamp=datetime.utcnow()
+    )
     db.session.add(log)
     db.session.commit()
 
     logout_user()
     return redirect(url_for("login"))
 
+
 if __name__ == "__main__":
-    app.run()
+    app.run(debug=True)
