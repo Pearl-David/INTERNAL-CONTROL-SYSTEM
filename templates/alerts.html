@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Control Alerts</title>
+</head>
+<body>
+    <h2>Control Alerts</h2>
+    {% if alerts %}
+        {% for alert in alerts %}
+            <p>
+                <strong>Transaction ID:</strong> {{ alert.transaction_id }}<br>
+                <strong>Type:</strong> {{ alert.alert_type }}<br>
+                <strong>Description:</strong> {{ alert.description }}
+            </p>
+            <hr>
+        {% endfor %}
+    {% else %}
+        <p>No alerts found.</p>
+    {% endif %}
+
+    <p><a href="{{ url_for('dashboard') }}">Back to Dashboard</a></p>
+</body>
+</html>

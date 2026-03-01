@@ -5,6 +5,7 @@ from flask_login import LoginManager, login_user, login_required, logout_user, c
 from flask_bcrypt import Bcrypt
 from datetime import datetime
 from functools import wraps
+import random
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -57,8 +58,11 @@ def register():
 
         hashed_pw = bcrypt.generate_password_hash(password).decode("utf-8")
 
-        # First registered user becomes Admin
-        role = "Admin" if User.query.count() == 0 else "Staff"
+        # First user = Admin, others choose role
+        if User.query.count() == 0:
+            role = "Admin"
+        else:
+            role = request.form.get("role")  # Staff or Manager
 
         new_user = User(username=username, password=hashed_pw, role=role)
         db.session.add(new_user)
@@ -96,10 +100,11 @@ def login():
     return render_template("login.html")
 
 
+# ================= DASHBOARD =================
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    return f"Welcome {current_user.username} - Role: {current_user.role}"
+    return render_template("dashboard.html")
 
 
 # ================= CREATE TRANSACTION =================
@@ -123,8 +128,8 @@ def create_transaction():
             timestamp=datetime.utcnow()
         )
         db.session.add(log)
-
         db.session.commit()
+
         return "Transaction Created"
 
     return render_template("create_transaction.html")
@@ -172,6 +177,7 @@ def approve_transaction(transaction_id):
     return "Transaction Approved"
 
 
+# ================= LOGOUT =================
 @app.route("/logout")
 @login_required
 def logout():
@@ -185,6 +191,47 @@ def logout():
 
     logout_user()
     return redirect(url_for("login"))
+
+
+# ================= VIEW ALERTS =================
+@app.route("/alerts")
+@login_required
+@role_required("Manager")
+def view_alerts():
+    alerts = ControlAlert.query.all()
+    return render_template("alerts.html", alerts=alerts)
+
+
+# ================= GENERATE TEST DATA =================
+@app.route("/generate-test-data")
+@login_required
+@role_required("Admin")
+def generate_test_data():
+    for i in range(200):
+        amount = random.randint(1000, 100000)
+        transaction = Transaction(
+            created_by=current_user.id,
+            amount=amount,
+            status="Pending"
+        )
+        db.session.add(transaction)
+    db.session.commit()
+    return "200 Transactions Generated"
+
+
+# ================= STATISTICS VIEW =================
+@app.route("/stats")
+@login_required
+@role_required("Admin")
+def stats():
+    total = Transaction.query.count()
+    fraud = Transaction.query.filter(Transaction.amount > 50000).count()
+    alerts = ControlAlert.query.count()
+    return f"""
+    Total Transactions: {total}<br>
+    Fraud Attempts: {fraud}<br>
+    Alerts Generated: {alerts}
+    """
 
 
 if __name__ == "__main__":
