@@ -27,7 +27,7 @@ with app.app_context():
     db.create_all()
 
 
-# ================= ROLE DECORATOR =================
+# ============== ROLE DECORATOR =================
 def role_required(role):
     def decorator(f):
         @wraps(f)
@@ -39,7 +39,7 @@ def role_required(role):
     return decorator
 
 
-# ================= ROUTES =================
+# ============== ROUTES =================
 
 @app.route("/")
 def home():
@@ -48,6 +48,8 @@ def home():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
+    user_count = User.query.count()  # Pass user count safely to template
+
     if request.method == "POST":
         username = request.form.get("username")
         password = request.form.get("password")
@@ -58,11 +60,9 @@ def register():
 
         hashed_pw = bcrypt.generate_password_hash(password).decode("utf-8")
 
-        # First user = Admin
-        if User.query.count() == 0:
-            role = "Admin"
+        if user_count == 0:
+            role = "Admin"  # First user is Admin
         else:
-            # Safely get role, default to Staff if missing
             role = request.form.get("role") or "Staff"
 
         new_user = User(username=username, password=hashed_pw, role=role)
@@ -72,7 +72,7 @@ def register():
         flash("Account created successfully")
         return redirect(url_for("login"))
 
-    return render_template("register.html")
+    return render_template("register.html", user_count=user_count)
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -101,14 +101,12 @@ def login():
     return render_template("login.html")
 
 
-# ================= DASHBOARD =================
 @app.route("/dashboard")
 @login_required
 def dashboard():
     return render_template("dashboard.html")
 
 
-# ================= CREATE TRANSACTION =================
 @app.route("/create-transaction", methods=["GET", "POST"])
 @login_required
 @role_required("Staff")
@@ -136,7 +134,6 @@ def create_transaction():
     return render_template("create_transaction.html")
 
 
-# ================= APPROVE TRANSACTION =================
 @app.route("/approve/<int:transaction_id>")
 @login_required
 @role_required("Manager")
@@ -144,7 +141,7 @@ def approve_transaction(transaction_id):
 
     transaction = Transaction.query.get_or_404(transaction_id)
 
-    # Fraud rule: flag suspicious high-value transactions
+    # Fraud detection
     if transaction.amount > 50000:
         alert = ControlAlert(
             transaction_id=transaction.id,
@@ -153,7 +150,7 @@ def approve_transaction(transaction_id):
         )
         db.session.add(alert)
 
-    # Control rule: Manager cannot approve above 10000
+    # Manager approval limit
     if transaction.amount > 10000:
         alert = ControlAlert(
             transaction_id=transaction.id,
@@ -173,28 +170,11 @@ def approve_transaction(transaction_id):
         timestamp=datetime.utcnow()
     )
     db.session.add(log)
-
     db.session.commit()
+
     return "Transaction Approved"
 
 
-# ================= LOGOUT =================
-@app.route("/logout")
-@login_required
-def logout():
-    log = AuditLog(
-        user_id=current_user.id,
-        action="Logged out",
-        timestamp=datetime.utcnow()
-    )
-    db.session.add(log)
-    db.session.commit()
-
-    logout_user()
-    return redirect(url_for("login"))
-
-
-# ================= VIEW ALERTS =================
 @app.route("/alerts")
 @login_required
 @role_required("Manager")
@@ -203,7 +183,6 @@ def view_alerts():
     return render_template("alerts.html", alerts=alerts)
 
 
-# ================= GENERATE TEST DATA =================
 @app.route("/generate-test-data")
 @login_required
 @role_required("Admin")
@@ -220,7 +199,6 @@ def generate_test_data():
     return "200 Transactions Generated"
 
 
-# ================= STATISTICS VIEW =================
 @app.route("/stats")
 @login_required
 @role_required("Admin")
@@ -233,6 +211,21 @@ def stats():
     Fraud Attempts: {fraud}<br>
     Alerts Generated: {alerts}
     """
+
+
+@app.route("/logout")
+@login_required
+def logout():
+    log = AuditLog(
+        user_id=current_user.id,
+        action="Logged out",
+        timestamp=datetime.utcnow()
+    )
+    db.session.add(log)
+    db.session.commit()
+
+    logout_user()
+    return redirect(url_for("login"))
 
 
 if __name__ == "__main__":
