@@ -4,6 +4,8 @@ from models import db, User, AuditLog
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from flask_bcrypt import Bcrypt
 from datetime import datetime
+from models import Transaction, ControlAlert
+
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -21,6 +23,18 @@ def load_user(user_id):
 
 with app.app_context():
     db.create_all()
+
+    from functools import wraps
+
+def role_required(role):
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if current_user.role != role:
+                return "Access Denied", 403
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
 
 @app.route("/")
 def home():
@@ -76,6 +90,72 @@ def login():
 @login_required
 def dashboard():
     return f"Welcome {current_user.username} - Role: {current_user.role}"
+
+    @app.route("/create-transaction", methods=["GET", "POST"])
+@login_required
+@role_required("Staff")
+def create_transaction():
+    if request.method == "POST":
+        amount = float(request.form.get("amount"))
+
+        transaction = Transaction(
+            created_by=current_user.id,
+            amount=amount,
+            status="Pending"
+        )
+
+        db.session.add(transaction)
+
+        # Audit log
+        log = AuditLog(
+            user_id=current_user.id,
+            action=f"Created transaction of {amount}"
+        )
+        db.session.add(log)
+        db.session.commit()
+
+        return "Transaction Created"
+
+    return render_template("create_transaction.html")
+
+    @app.route("/approve/<int:transaction_id>")
+@login_required
+@role_required("Manager")
+def approve_transaction(transaction_id):
+
+    transaction = Transaction.query.get_or_404(transaction_id)
+    # Fraud rule: flag suspicious high-value transactions
+if amount > 50000:
+    alert = ControlAlert(
+        transaction_id=transaction.id,
+        alert_type="Suspicious Transaction",
+        description="Transaction unusually high"
+    )
+    db.session.add(alert)
+
+    # Control rule: Manager cannot approve above 10000
+    if transaction.amount > 10000:
+        alert = ControlAlert(
+            transaction_id=transaction.id,
+            alert_type="Approval Limit Exceeded",
+            description="Transaction exceeds manager approval limit"
+        )
+        db.session.add(alert)
+        db.session.commit()
+        return "Approval Denied - Limit Exceeded"
+
+    transaction.status = "Approved"
+    transaction.approved_by = current_user.id
+
+    log = AuditLog(
+        user_id=current_user.id,
+        action=f"Approved transaction {transaction.id}"
+    )
+
+    db.session.add(log)
+    db.session.commit()
+
+    return "Transaction Approved"
 
 @app.route("/logout")
 @login_required
